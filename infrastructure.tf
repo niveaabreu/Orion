@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-east-1"
+  region = "us-east-2"
 }
 
 resource "aws_vpc" "main" {
@@ -7,14 +7,14 @@ resource "aws_vpc" "main" {
   enable_dns_support = true
   enable_dns_hostnames = true
   tags = {
-    Name = "Projeto Techack"
+    Name = "Projeto Techack Matheus-Nivea"
   }
 }
 
 resource "aws_subnet" "public_subnet" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.0.0/28"
-  availability_zone       = "us-east-1a"  
+  availability_zone       = "us-east-2a"  
   map_public_ip_on_launch = true
   tags = {
     Name = "Public Subnet"
@@ -24,7 +24,7 @@ resource "aws_subnet" "public_subnet" {
 resource "aws_subnet" "private_subnet_a" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/28"
-  availability_zone       = "us-east-1b"  
+  availability_zone       = "us-east-2b"  
   tags = {
     Name = "Private Subnet"
   }
@@ -33,7 +33,7 @@ resource "aws_subnet" "private_subnet_a" {
 resource "aws_subnet" "private_subnet_b" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.2.0/28"
-  availability_zone       = "us-east-1b"  
+  availability_zone       = "us-east-2b"  
   tags = {
     Name = "Private Subnet"
   }
@@ -42,10 +42,44 @@ resource "aws_subnet" "private_subnet_b" {
 resource "aws_subnet" "private_subnet_c" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.3.0/28"
-  availability_zone       = "us-east-1b"  
+  availability_zone       = "us-east-2b"  
   tags = {
     Name = "Private Subnet"
   }
+}
+
+resource "aws_internet_gateway" "public_igw" {
+  vpc_id = aws_vpc.main.id
+  tags = {
+    Name = "Public Internet Gateway"
+  }
+}
+
+resource "aws_route_table_association" "public_subnet_association" {
+  subnet_id      = aws_subnet.public_subnet.id
+  route_table_id = aws_vpc.main.main_route_table_id
+}
+
+resource "aws_nat_gateway" "private_nat_gateway" {
+  subnet_id     = aws_subnet.private_subnet_a.id
+  tags = {
+    Name = "Private NAT Gateway"
+  }
+}
+
+resource "aws_route_table" "private_subnet_route_table" {
+  vpc_id = aws_vpc.main.id
+}
+
+resource "aws_route_table_association" "private_subnet_association" {
+  subnet_id      = aws_subnet.private_subnet_a.id
+  route_table_id = aws_route_table.private_subnet_route_table.id
+}
+
+resource "aws_route" "private_subnet_route" {
+  route_table_id         = aws_route_table.private_subnet_route_table.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.private_nat_gateway.id
 }
 
 resource "aws_security_group" "jump_sg" {
@@ -126,10 +160,10 @@ resource "aws_security_group" "zabbix_sg" {
   name        = "zabbix-sg"
   vpc_id      = aws_vpc.main.id
   ingress {
-    from_port   = 10050
-    to_port     = 10050
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
-    security_groups = [aws_security_group.dev_sg.id, aws_security_group.prod_sg.id]
+    security_groups = [aws_security_group.jump_sg.id]
   }
 }
 
@@ -184,7 +218,7 @@ resource "aws_instance" "jump_server" {
   ami                    = "ami-0fc5d935ebf8bc3bc"
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_subnet.id
-  security_group_names   = [aws_security_group.jump_sg.name]
+  vpc_security_group_ids   = [aws_security_group.jump_sg.name]
   associate_public_ip_address = true
   key_name               = "bastion_host"
 
@@ -209,10 +243,9 @@ resource "aws_db_instance" "rds_instance" {
   engine                 = "mysql"
   engine_version         = "5.7"
   instance_class         = "db.t2.micro"
-  name                   = "banco_de_dados"
   username               = "admin"
   password               = "admin1234"
-  subnet_group_name      = "default"
+  db_subnet_group_name      = "default"
   vpc_security_group_ids = [aws_security_group.db_sg.id]
 }
 
@@ -225,7 +258,7 @@ resource "aws_instance" "prod_instance" {
   ami                    = "ami-0fc5d935ebf8bc3bc"
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.private_subnet_a.id
-  security_group_names   = [aws_security_group.prod_sg.name]
+  vpc_security_group_ids   = [aws_security_group.prod_sg.name]
   user_data = <<-EOF
               #!/bin/bash
               # Install requirements
@@ -248,7 +281,7 @@ resource "aws_instance" "prod_instance" {
               echo "DB_PASSWORD=admin1234" >> /home/ubuntu/Orion/.env
               echo "DB_HOST=${aws_db_instance.rds_instance.endpoint}" >> /home/ubuntu/Orion/.env
               echo "DB_PORT=3306" >> /home/ubuntu/Orion/.env
-              echo "DB_CONNECTION_STRING=\${DB_PROVIDER}+\${DB_DRIVER}://\${DB_USER}:\${DB_PASSWORD}@\${DB_HOST}:\${DB_PORT}/\${DB_DATABASE_NAME}" >> /home/ubuntu/Orion/.env
+              
               python3 create.py
 
               sudo apt-get install -y zabbix-agent
@@ -278,7 +311,7 @@ resource "aws_instance" "dev_instance" {
   ami                    = "ami-0fc5d935ebf8bc3bc"
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.private_subnet_b.id
-  security_group_names   = [aws_security_group.dev_sg.name]
+  vpc_security_group_ids   = [aws_security_group.dev_sg.name]
   user_data = <<-EOF
               #!/bin/bash
               # Install requirements
@@ -299,7 +332,7 @@ resource "aws_instance" "dev_instance" {
               echo "DB_PASSWORD=admin1234" >> /home/ubuntu/Orion/.env
               echo "DB_HOST=${aws_db_instance.rds_instance.endpoint}" >> /home/ubuntu/Orion/.env
               echo "DB_PORT=3306" >> /home/ubuntu/Orion/.env
-              echo "DB_CONNECTION_STRING=\${DB_PROVIDER}+\${DB_DRIVER}://\${DB_USER}:\${DB_PASSWORD}@\${DB_HOST}:\${DB_PORT}/\${DB_DATABASE_NAME}" >> /home/ubuntu/Orion/.env
+              
 
               python3 create.py
 
@@ -326,7 +359,7 @@ resource "aws_instance" "zabbix_server" {
   ami                    = "ami-0fc5d935ebf8bc3bc"
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_subnet.id
-  security_group_names   = [aws_security_group.zabbix_sg.name]
+  vpc_security_group_ids   = [aws_security_group.zabbix_sg.name]
   user_data = <<-EOF
               #!/bin/bash
               # Install requirements
@@ -363,13 +396,13 @@ resource "aws_instance" "zabbix_server" {
 
 resource "aws_instance" "frontend_instance" {
   depends_on = [
-    aws_db_instance.prod_instance,
+    aws_instance.prod_instance,
     aws_instance.dev_instance
   ]
   ami                    = "ami-0fc5d935ebf8bc3bc"
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_subnet.id
-  security_group_names   = [aws_security_group.frontend_sg.name]
+  vpc_security_group_ids   = [aws_security_group.frontend_sg.name]
   user_data = <<-EOF
               #!/bin/bash
               sudo apt-get update
@@ -384,13 +417,13 @@ resource "aws_instance" "frontend_instance" {
 
 resource "aws_instance" "jenkins_instance" {
   depends_on = [
-    aws_db_instance.prod_instance,
+    aws_instance.prod_instance,
     aws_instance.dev_instance
   ]
   ami                    = "ami-0fc5d935ebf8bc3bc"
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_subnet.id
-  security_group_names   = [aws_security_group.jenkins_sg.name]
+  vpc_security_group_ids   = [aws_security_group.jenkins_sg.name]
   user_data = <<-EOF
               #!/bin/bash
               sudo apt-get update
