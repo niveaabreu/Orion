@@ -186,7 +186,7 @@ resource "aws_instance" "jump_server" {
   subnet_id              = aws_subnet.public_subnet.id
   security_group_names   = [aws_security_group.jump_sg.name]
   associate_public_ip_address = true
-  key_name               = "bastion_host"  # Replace with your key pair name
+  key_name               = "bastion_host"
 
   user_data = <<-EOF
               #!/bin/bash
